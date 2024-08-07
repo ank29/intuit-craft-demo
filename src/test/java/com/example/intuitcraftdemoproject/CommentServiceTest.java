@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 import com.example.intuitcraftdemoproject.dto.CommentRequest;
+import com.example.intuitcraftdemoproject.exception.ResourceNotFoundException;
 import com.example.intuitcraftdemoproject.model.*;
 import com.example.intuitcraftdemoproject.repository.*;
 import com.example.intuitcraftdemoproject.service.CommentService;
@@ -41,7 +42,38 @@ class CommentServiceTest {
     }
 
     @Test
-    void testAddComment() {
+    void testAddComment_WithParentComment() {
+        CommentRequest commentRequest = new CommentRequest();
+        commentRequest.setUserId(1L);
+        commentRequest.setContent("This is a reply");
+        commentRequest.setParentCommentId(1L);
+
+        Users user = new Users();
+        user.setId(1L);
+
+        Comments parentComment = new Comments();
+        parentComment.setId(1L);
+        parentComment.setPostId(1L);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(commentRepository.findById(1L)).thenReturn(Optional.of(parentComment));
+        when(commentRepository.save(any(Comments.class))).thenAnswer(invocation -> {
+            Comments comment = invocation.getArgument(0);
+            comment.setId(2L); // Setting the ID for the saved comment
+            return comment;
+        });
+
+        Comments result = commentService.addComment(commentRequest);
+
+        assertNotNull(result);
+        assertEquals(1L, result.getPostId());
+        assertEquals(user, result.getUser());
+        assertEquals("This is a reply", result.getContent());
+        assertEquals(parentComment, result.getParentCommentId());
+    }
+
+    @Test
+    void testAddComment_WithPostId() {
         CommentRequest commentRequest = new CommentRequest();
         commentRequest.setPostId(1L);
         commentRequest.setUserId(1L);
@@ -51,7 +83,11 @@ class CommentServiceTest {
         user.setId(1L);
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(commentRepository.save(any(Comments.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(commentRepository.save(any(Comments.class))).thenAnswer(invocation -> {
+            Comments comment = invocation.getArgument(0);
+            comment.setId(1L); // Setting the ID for the saved comment
+            return comment;
+        });
 
         Comments result = commentService.addComment(commentRequest);
 
@@ -59,7 +95,27 @@ class CommentServiceTest {
         assertEquals(1L, result.getPostId());
         assertEquals(user, result.getUser());
         assertEquals("This is a comment", result.getContent());
+        assertNull(result.getParentCommentId());
     }
+
+    @Test
+    void testAddComment_WithoutPostIdAndParentCommentId() {
+        CommentRequest commentRequest = new CommentRequest();
+        commentRequest.setUserId(1L);
+        commentRequest.setContent("This is a comment without postId and parentCommentId");
+
+        Users user = new Users();
+        user.setId(1L);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> {
+            commentService.addComment(commentRequest);
+        });
+
+        assertEquals("Either Post ID or Parent Comment ID must be provided", exception.getMessage());
+    }
+
 
     @Test
     void testGetRepliesByParentCommentId() {
@@ -169,6 +225,46 @@ class CommentServiceTest {
 
         assertNotNull(result);
         assertEquals(2, result.size());
+    }
+
+    @Test
+    public void testLikeComment_CommentNotFound() {
+        when(commentRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> {
+            commentService.likeComment(1L, 1L);
+        });
+    }
+
+    @Test
+    public void testLikeComment_UserNotFound() {
+        Comments comment = new Comments();
+        when(commentRepository.findById(anyLong())).thenReturn(Optional.of(comment));
+        when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> {
+            commentService.likeComment(1L, 1L);
+        });
+    }
+
+    @Test
+    public void testDislikeComment_CommentNotFound() {
+        when(commentRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> {
+            commentService.dislikeComment(1L, 1L);
+        });
+    }
+
+    @Test
+    public void testDislikeComment_UserNotFound() {
+        Comments comment = new Comments();
+        when(commentRepository.findById(anyLong())).thenReturn(Optional.of(comment));
+        when(userRepository.findById(anyLong())).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> {
+            commentService.dislikeComment(1L, 1L);
+        });
     }
 
 }
